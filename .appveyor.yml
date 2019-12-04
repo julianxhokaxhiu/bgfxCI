@@ -1,0 +1,117 @@
+# .appveyor.yml
+
+# Build version
+version: '1.0.{build}'
+
+# Use the latest available toolchain
+image: Visual Studio 2019
+
+# fetch repository as zip archive
+shallow_clone: true
+
+# PRs do not increment the build number
+pull_requests:
+  do_not_increment_build_number: true
+
+# Build configurations
+configuration: Release
+
+# Default environment variables
+environment:
+  _IS_BUILD_CANARY: false
+  _RELEASE_NAME: bgfx
+  # Use Python 3.x
+  PYTHON: "C:\\Python38-x64"
+  PYTHON_VERSION: "3.8.x"
+  PYTHON_ARCH: "64"
+  # BGFX defines ( multiple values can be set using ':','%' or 's' as a separator)
+  BGFX_CONFIG: "DEBUG=1"
+
+install:
+  - git clone --recursive https://github.com/bkaradzic/bgfx.git
+  - git clone --recursive https://github.com/bkaradzic/bx.git
+  - git clone --recursive https://github.com/bkaradzic/bimg.git
+  - cd bgfx
+  - ..\bx\tools\bin\windows\genie --with-tools vs2019
+
+# Prepare Cpp environment
+before_build:
+  - cmd: |
+      set PATH=%PYTHON%;%PYTHON%\\Scripts;%PATH%
+  - ps: |
+      if ($env:APPVEYOR_REPO_TAG -eq "true" -and $env:APPVEYOR_REPO_TAG_NAME) {
+        $env:APPVEYOR_BUILD_VERSION = $env:APPVEYOR_BUILD_VERSION.Substring(0,$env:APPVEYOR_BUILD_VERSION.LastIndexOf('.')) + ".0"
+        $env:_RELEASE_NAME = $env:_RELEASE_NAME + "-v" + $env:APPVEYOR_BUILD_VERSION
+      } else {
+        $env:_RELEASE_NAME = $env:_RELEASE_NAME + "-Canary"
+        $env:APPVEYOR_REPO_TAG_NAME = "canary"
+        $env:_IS_BUILD_CANARY = "true"
+      }
+
+build:
+  project: bgfx/.build/projects/vs2019/bgfx.sln
+
+after_build:
+  - cd .build/win32_vs2019/bin
+  - md ..\bin_new
+  - ps: |
+      get-childitem *.exe | foreach {
+        Move-Item $_.Name ..\bin_new;
+
+        $pdbName = $_.BaseName + ".pdb";
+        if (Test-Path $pdbName) {
+          Move-Item $pdbName ..\bin_new;
+        }
+
+        $libName = $_.BaseName + ".lib";
+        if (Test-Path $libName) {
+          Move-Item $libName ..\bin_new;
+        }
+      }
+  - md ..\lib\bgfx
+  - mv *.lib ../lib/bgfx
+  - mv *.pdb ../lib/bgfx
+  - cp -r ../../../include ..
+  - cp ../../../src/bgfx_shader.sh ../include/bgfx
+  - cp ../../../src/bgfx_compute.sh ../include/bgfx
+  - cp -r ../../../../bx/include ..
+  - cp -r ../../../../bimg/include ..
+  - cd ..
+  - rm -r bin obj
+  - mv bin_new bin
+  - ps: |
+      get-childitem bin/* -Recurse | foreach {
+        Rename-Item -Path $_.FullName -NewName $_.Name.replace($env:CONFIGURATION,"");
+      }
+
+# Do not run unit tests
+test: off
+
+# Package artifacts
+artifacts:
+  - path: bgfx\.build\win32_vs2019
+    name: ${_RELEASE_NAME}_${CONFIGURATION}
+    type: zip
+
+# Create a GitHub release for every tag
+deploy:
+  # Deploy only when new tags are pushed
+  - provider: GitHub
+    tag: ${appveyor_repo_tag_name}
+    release: ${_RELEASE_NAME}
+    artifact: ${_RELEASE_NAME}_${CONFIGURATION}
+    auth_token: ${_GH_DEPLOYMENT_TOKEN}
+    on:
+      _IS_BUILD_CANARY: false
+  # Deploy on each commit
+  - provider: GitHub
+    tag: ${appveyor_repo_tag_name}
+    release: ${_RELEASE_NAME} v${appveyor_build_version}
+    artifact: ${_RELEASE_NAME}_${CONFIGURATION}
+    prerelease: true
+    force_update: true
+    auth_token: ${_GH_DEPLOYMENT_TOKEN}
+    on:
+      _IS_BUILD_CANARY: true
+    description: |
+      This is a canary build. Please be aware it may be prone to crashing and is NOT tested by anyone. Use this build AT YOUR OWN RISK!
