@@ -28,15 +28,15 @@ resources:
   - repository: bx
     type: github
     endpoint: github_ci
-    name: bkaradzic/bx
+    name: julianxhokaxhiu/bx
   - repository: bimg
     type: github
     endpoint: github_ci
-    name: bkaradzic/bimg
+    name: julianxhokaxhiu/bimg
   - repository: bgfx
     type: github
     endpoint: github_ci
-    name: bkaradzic/bgfx
+    name: julianxhokaxhiu/bgfx
 
 steps:
 - checkout: self
